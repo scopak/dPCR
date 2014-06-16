@@ -1,6 +1,6 @@
 function (exp.numb=1,d,n,x,w,ds,ns,xs,ws,ub.c=0.0,ub.s=10.0,single=TRUE, logcsv=FALSE,console=TRUE)
 {
-#program: mle.cs
+#program: mle (version 1)
 #purpose: calculate concentration of molecules using Poisson and binomial statistics; can compare pristine to spike controls
 #written and designed by Scott P. Keely, Ph.D.
 #contact: scott.keely@gmail.com
