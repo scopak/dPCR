@@ -1,0 +1,234 @@
+function (exp.numb=1,d,n,x,w,ds,ns,xs,ws,ub.c=0.0,ub.s=10.0,single=TRUE, logcsv=FALSE,console=TRUE)
+{
+#program: mle.cs
+#purpose: calculate concentration of molecules using Poisson and binomial statistics; can compare pristine to spike controls
+#written and designed by Scott P. Keely, Ph.D.
+#contact: scott.keely@gmail.com
+#supply vectors with same length: d,n,x,w or ds,ns,xs,ws (if single=F; otherwise just one set)
+#options(scipen=10)
+
+#data checks (need at least one data set to run)
+vectors<-c(length(d),length(n),length(x),length(w))
+if(any(vectors < length(d))|any(vectors > length(d))){
+  cat("The length of d is ",length(d),"\n")
+  cat("The length of n is ",length(n),"\n")
+  cat("The length of x is ",length(x),"\n")
+  cat("The length of w is ",length(w),"\n")
+  stop("Program terminated: data vectors must be the same length!")
+}
+if(sum(x)<1){
+  cat("Program terminated: Insufficient number of positives\n")
+  return(x)
+}
+if(sum(x)==sum(n)){
+  cat("Program terminated: The number of replicates in the vector is full\n")
+  return(x)
+}
+#global functions
+#goodness-of-fit
+X2IndexFn <- function(pval) {
+  if ((0.01 <= pval) &(pval<= 1.00)) {
+    pval.ind = 1
+  }
+  else if((0 < pval) &(pval< 0.01))  {
+    pval.ind = 3
+  }
+  else {
+    pval.ind = "na"
+  }
+}
+#rarity
+RIndexFn <- function(ratio) {
+  if ((0.05 <= ratio) &(ratio<= 1.00)) {
+    index.cs = 1
+  }
+  else if ((0.01 <= ratio) &(ratio< 0.05)) {
+    index.cs = 2
+  }
+  else if ((0 < ratio) &(ratio< 0.01)) {
+    index.cs = 3
+  }
+  else {
+    index.cs = "na"
+  }
+}
+
+#Component for 95%CL (ie., Haldane method) for mle
+B <- function (u,d,x,w) {
+  sum((x*d*d*w*w*(c(exp(-1*u*d*w))))/(((c(exp(-1*u*d*w)))-1)^2))
+}
+#save to csv
+log.output <-function(logcsv,dataOut) {
+  if(logcsv) {
+    lengthMat = length(dataOut)
+    write.table(matrix(dataOut,1,lengthMat),"MLEoutput.csv",sep=",",append=TRUE,col.names=FALSE,row.names=FALSE)
+    cat("data appended to file ", c(getwd(),"/MLEoutput.csv"),"\n")
+  }
+}
+
+#single vector only
+if(single) {
+#set boundaries for uniroot
+lowerBound <-1e-12 #change if necessary
+lambda <- (-log(1-(x/n)))*1/d*1/w
+lambda.no.inf <-lambda[lambda < Inf]
+lambda.max <- max(lambda.no.inf)
+upperBound.c <-lambda.max +ub.c #change ub.c in function calls if necessary esp. for unusual datasets
+
+#estimate concentration of a single sample with 1st derivative of log-mle
+MleFn.c <- function(uc) {
+  sum(d*x*w/(1-exp(-1*d*w*uc))-n*d*w)
+}
+mleEstimate.c=uniroot(MleFn.c,lower=lowerBound,upper=upperBound.c,tol=1e-12)
+mle.c = mleEstimate.c$root
+
+#95% Confidence Limits
+b.c <- B(u=mle.c,d=d,x=x,w=w)
+se.mle.c <- 1/(2.303*mle.c*(b.c^0.5))
+upperCL.c = exp(2.303*(log10(mle.c)+(1.96*se.mle.c)))
+lowerCL.c = exp(2.303*(log10(mle.c)-(1.96*se.mle.c)))
+
+#most likely and rarity index for mle
+probPos.c <-1-exp(-1*mle.c*d*w)
+mostLikely.c <- pmin(n,trunc(n*probPos.c +probPos.c))
+likeLiNum.c <- prod(dbinom(x,n,probPos.c,log=FALSE)) # use pristine control
+#binprob.c <- dbinom(x,n,probPos.c,log=FALSE)
+#dil.max.prob <-max(binprob.c)
+#dil.max <-which.max(binprob.c)
+likeLiDen.c <- prod(dbinom(mostLikely.c,n,probPos.c,log=FALSE))
+binom.p.c <-likeLiNum.c
+rarity.c = likeLiNum.c/likeLiDen.c
+index.c<-RIndexFn(rarity.c)
+
+#chi-square goodness-of-fit for data
+MiniChiX.c <- function(u) {
+  pneg.c <-0.0 #false negative rate
+  ppos.c <-0.0 #false positive rate
+  A1 = exp(-1*d*w*u)*(1-ppos.c)+ exp(-1*d*w*u)*pneg.c
+  sum(((n-x)-(n*A1))^2/(n*A1*(1-A1)))
+}
+MiniX.c <-optimize(MiniChiX.c,lower=lowerBound,upper=upperBound.c,tol=1e-12)
+chisq.c <- MiniX.c$objective
+df.c <-length(n)-1
+p.c <- pchisq(chisq.c,df.c,lower.tail=FALSE) #p value
+p.index.c<-X2IndexFn(p.c)
+
+#print to screen results
+dataOut <-data.frame(exp.numb,mle.c,lowerCL.c,upperCL.c,rarity.c,index.c,chisq.c,p.c,p.index.c,binom.p.c)
+#append to a csv file
+log.output(logcsv,dataOut)
+}
+###############
+#code for comparing pristine and spiked controls
+else {
+vectors<-c(length(ds),length(ns),length(xs),length(ws))
+if(any(vectors < length(ds))|any(vectors > length(ds))){
+  cat("The length of ds is ",length(ds),"\n")
+  cat("The length of ns is ",length(ns),"\n")
+  cat("The length of xs is ",length(xs),"\n")
+  cat("The length of ws is ",length(ws),"\n")
+  stop("Program terminated: data vectors must be the same length!")
+}
+if(sum(xs)<1){
+  cat("Program terminated: Insufficient number of positives\n")
+  return(xs)
+}
+if(sum(xs)==sum(ns)){
+  cat("Program terminated: The number of replicates in the vector is full\n")
+  return(xs)
+}
+
+#set boundaries
+lowerBound <-1e-12 #change if necessary
+lambda.c <- (-log(1-(x/n)))*1/d*1/w
+lambda.s <- (-log(1-(xs/ns)))*1/ds*1/ws
+lambda.no.inf.c <-lambda.c[lambda.c < Inf]
+lambda.no.inf.s <-lambda.s[lambda.s < Inf]
+lambda.max.c <- max(lambda.no.inf.c)
+lambda.max.s <- max(lambda.no.inf.s)
+upperBound.c <-lambda.max.c +ub.c #change ub.c if necessary esp. for unusual datasets
+upperBound.s <-lambda.max.s +ub.s
+
+
+#estimate concentration with 1st derivative of log-mle
+MleFn.c <- function(uc) {
+  sum(d*x*w/(1-exp(-1*d*w*uc))-n*d*w)
+}
+mleEstimate.c=uniroot(MleFn.c,lower=lowerBound,upper=upperBound.c,tol=1e-12)
+mle.c = mleEstimate.c$root
+
+MleFn.s <- function(us) {
+  sum(ds*xs*ws/(1-exp(-1*ds*ws*us))-ns*ds*ws)
+}
+mleEstimate.s=uniroot(MleFn.s,lower=lowerBound,upper=upperBound.s,tol=1e-12)
+mle.s = mleEstimate.s$root
+
+#calculation for re (ie, (expected - observed) /expected)
+#mathematical signs indicate probable inhibition (ie., '+') or DNA contamination (ie.,'-')
+rel_err <- (mle.c-mle.s)/mle.c
+adjust.factor <- 1/(1-rel_err)
+test.adj.factor <- mle.s*adjust.factor #(ie., should equal mle.c)
+
+b.c <- B(u=mle.c,d=d,x=x,w=w)
+a.s <- B(u=mle.s,d=ds,x=xs,w=ws)
+se.mle.c <- 1/(2.303*mle.c*(b.c^0.5))
+se.mle.s <- 1/(2.303*mle.s*(a.s^0.5))
+upperCL.c = exp(2.303*(log10(mle.c)+(1.96*se.mle.c)))
+lowerCL.c = exp(2.303*(log10(mle.c)-(1.96*se.mle.c)))
+upperCL.s = exp(2.303*(log10(mle.s)+(1.96*se.mle.s)))
+lowerCL.s = exp(2.303*(log10(mle.s)-(1.96*se.mle.s)))
+
+#most likely and rarity for mle
+probPos.c <-1-exp(-1*mle.c*d*w)
+probPos.s <- 1-exp(-1*mle.s*ds*ws)
+mostLikely.c <- pmin(n,trunc(n*probPos.c +probPos.c))
+mostLikely.s <- pmin(n,trunc(n*probPos.s +probPos.s))
+
+likeLiNum.c <- prod(dbinom(x,n,probPos.c,log=FALSE)) # use pristine control
+likeLiDen.c <- prod(dbinom(mostLikely.c,n,probPos.c,log=FALSE))
+likeLiNum.s <- prod(dbinom(xs,ns,probPos.s,log=FALSE)) # use spike control
+likeLiDen.s <- prod(dbinom(mostLikely.s,ns,probPos.s,log=FALSE))
+binom.p.c <-likeLiNum.c
+binom.p.s <-likeLiNum.s
+rarity.c = likeLiNum.c/likeLiDen.c
+rarity.s = likeLiNum.s/likeLiDen.s
+index.c<-RIndexFn(rarity.c)
+index.s<-RIndexFn(rarity.s)
+ 
+MiniChiX.c <- function(u) {
+  pneg.c <-0.0
+  ppos.c <-0.0
+  A1 = exp(-1*d*w*u)*(1-ppos.c)+ exp(-1*d*w*u)*pneg.c
+  sum(((n-x)-(n*A1))^2/(n*A1*(1-A1)))
+}
+MiniX.c <-optimize(MiniChiX.c,lower=lowerBound,upper=upperBound.c,tol=1e-12)
+chisq.c <- MiniX.c$objective
+df.c <-length(n)-1
+p.c <- pchisq(chisq.c,df.c,lower.tail=FALSE) #P value
+
+MiniChiX.s <- function(us) {
+  pneg.s <-0.0
+  ppos.s <-0.0
+  A2 = exp(-1*ds*ws*us)*(1-ppos.s)+ exp(-1*ds*ws*us)*pneg.s
+  sum(((ns-xs)-(ns*A2))^2/(n*A2*(1-A2)))
+}
+MiniX.s <-optimize(MiniChiX.s,lower=lowerBound,upper=upperBound.s,tol=1e-12)
+chisq.s <- MiniX.s$objective
+df.s <-length(ns)-1
+p.s <- pchisq(chisq.s,df.s,lower.tail=FALSE)# p value
+
+#quality threholds
+p.index.c<-X2IndexFn(p.c)
+p.index.s<-X2IndexFn(p.s)
+
+#print results
+dataOut <-data.frame(exp.numb,mle.c,lowerCL.c,upperCL.c,rarity.c,index.c,chisq.c,p.c,p.index.c,binom.p.c,mle.s,lowerCL.s,upperCL.s,rarity.s,index.s,chisq.s,p.s,p.index.s,binom.p.s,rel_err,adjust.factor)
+#append to a csv file
+log.output(logcsv,dataOut)
+}
+
+if(console) {
+  return(dataOut)
+}
+
+}
